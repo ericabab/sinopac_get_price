@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: sinopac_get_price
+    env: python
+    plan: free
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python main.py"
+    envVars:
+      - key: API_KEY
+        sync: false
+      - key: SECRET_KEY
+        sync: false
