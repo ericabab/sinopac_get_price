@@ -31,14 +31,17 @@ def get_contract():
         stock_list = code.split(',')
         if not stock_list:
             print("[INFO] No valid stock")
-            return None
+            return jsonify({"error": f"No valid stock with {code}"}), 404
         for s in stock_list:
-            contracts.append(api.Contracts.Stocks[s.upper()])
+            if ss := api.Contracts.Stocks[s.upper()]:
+                contracts.append(ss)
+        if not contracts:
+            return jsonify({"error": f"No valid contract with {code}"}), 404
         snapshots = api.snapshots(contracts)
         result = [{"symbol": s.code, "price": s.close,
                    "change_price": s.change_price, "change_rate": s.change_rate} for s in snapshots]
         return jsonify(result)
-    except KeyError:
+    except:
         return jsonify({"error": f"Stock code {code} not found"}), 404
 
 
