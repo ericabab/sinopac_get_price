@@ -50,7 +50,7 @@ def check_auth():
     return password == API_KEY
 
 
-//@app.before_request
+#@app.before_request
 def before_request():
     """全域驗證"""
     if not check_auth():
