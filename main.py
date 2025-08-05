@@ -50,7 +50,7 @@ def check_auth():
     return password == API_KEY
 
 
-@app.before_request
+//@app.before_request
 def before_request():
     """全域驗證"""
     if not check_auth():
@@ -76,10 +76,14 @@ def clean_cache(now):
 
 @app.route('/get_contract', methods=['GET'])
 def get_contract():
+
+    if not check_auth():
+        return jsonify({"error": "Unauthorized. Invalid password."}), 401
+    
     code = request.args.get('code')
     if not code:
         return jsonify({"error": "Missing 'code' parameter"}), 400
-
+    
     now = time.time()
 
     if not check_rate_limit(now):
