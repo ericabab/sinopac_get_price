@@ -19,8 +19,8 @@ api = sj.Shioaji(simulation=True)  # 模擬環境，真實環境改成 simulatio
 
 # 登入
 api.login(
-    api_key=os.environ["API_KEY"],
-    secret_key=os.environ["SECRET_KEY"],
+    api_key=os.environ["SINO_API_KEY"],
+    secret_key=os.environ["SINO_SECRET_KEY"],
     contracts_timeout=10000,
 )
 
@@ -33,6 +33,7 @@ last_cache_clean_time = time.time()
 last_request_time = 0
 REQUEST_LIMIT_INTERVAL = 0.5  # 1 秒
 
+API_KEY = os.getenv("API_KEY", "mysecret")  # 預設密碼為 mysecret，可放到 .env
 
 def check_rate_limit(now):
     """檢查全域 1 秒請求限制"""
@@ -41,6 +42,19 @@ def check_rate_limit(now):
         return False
     last_request_time = now
     return True
+
+
+def check_auth():
+    """檢查 API 密碼"""
+    password = request.headers.get("Authorization") or request.args.get("password")
+    return password == API_KEY
+
+
+@app.before_request
+def before_request():
+    """全域驗證"""
+    if not check_auth():
+        return jsonify({"error": "Unauthorized. Invalid password."}), 401
 
 
 def clean_cache(now):
