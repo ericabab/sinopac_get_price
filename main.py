@@ -125,7 +125,7 @@ def home():
 
 @app.route('/healthz', methods=['GET'])
 def healthz():
-    return "Bot is health ^_^"
+    return "OK", 200
 
 
 def run_web():
