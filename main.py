@@ -3,7 +3,6 @@ import shioaji as sj
 import os
 import threading
 import time
-
 from dotenv import load_dotenv
 
 if not os.getenv("RENDER") and not os.getenv("DOCKER") and not os.getenv("HEROKU"):
@@ -14,29 +13,52 @@ else:
 
 app = Flask(__name__)
 
-# 初始化 Shioaji
-api = sj.Shioaji(simulation=True)  # 模擬環境，真實環境改成 simulation=False
+API_KEY = os.getenv("API_KEY", "my_secret")
+SINO_API_KEY = os.environ["SINO_API_KEY"]
+SINO_SECRET_KEY = os.environ["SINO_SECRET_KEY"]
 
-# 登入
-api.login(
-    api_key=os.environ["SINO_API_KEY"],
-    secret_key=os.environ["SINO_SECRET_KEY"],
-    contracts_timeout=10000,
-)
+CACHE_TTL = 1
+CACHE_CLEAN_INTERVAL = 60
+REQUEST_LIMIT_INTERVAL = 0.5
 
 cache = {}
-CACHE_TTL = 1  # 秒數
-CACHE_CLEAN_INTERVAL = 60  # 60 秒清理過期快取
 last_cache_clean_time = time.time()
-
-# 全域請求頻率限制
 last_request_time = 0
-REQUEST_LIMIT_INTERVAL = 0.5  # 1 秒
 
-API_KEY = os.getenv("API_KEY", "mysecret")  # 預設密碼為 mysecret，可放到 .env
+api = None
+last_ping_time = 0
+
+
+def init_shioaji():
+    """初始化並登入 Shioaji"""
+    global api
+    try:
+        print("[INFO] 初始化 Shioaji...")
+        api = sj.Shioaji(simulation=True)
+        api.login(api_key=SINO_API_KEY, secret_key=SINO_SECRET_KEY, contracts_timeout=10000)
+        print("[INFO] Shioaji 登入成功")
+    except Exception as e:
+        print(f"[ERROR] Shioaji 初始化失敗: {e}")
+        api = None
+
+
+def keep_alive():
+    """定時 ping 避免斷線"""
+    global api, last_ping_time
+    while True:
+        try:
+            if api:
+                now = time.time()
+                if now - last_ping_time > 30:  # 每 30 秒 ping 一次
+                    api.list_accounts()  # 輕量 API 呼叫
+                    last_ping_time = now
+        except Exception as e:
+            print(f"[WARN] 連線可能斷線，嘗試重連: {e}")
+            init_shioaji()
+        time.sleep(60)
+
 
 def check_rate_limit(now):
-    """檢查全域 1 秒請求限制"""
     global last_request_time
     if now - last_request_time < REQUEST_LIMIT_INTERVAL:
         return False
@@ -45,23 +67,12 @@ def check_rate_limit(now):
 
 
 def check_auth():
-    """檢查 API 密碼"""
     password = request.headers.get("Authorization") or request.args.get("password")
     return password == API_KEY
 
 
-#@app.before_request
-def before_request():
-    """全域驗證"""
-    if not check_auth():
-        return jsonify({"error": "Unauthorized. Invalid password."}), 401
-
-
 def clean_cache(now):
-    """清理過期快取"""
     global last_cache_clean_time
-
-    # 每 60 秒清理一次
     if now - last_cache_clean_time > CACHE_CLEAN_INTERVAL:
         expired_keys = [
             key for key, value in cache.items()
@@ -76,46 +87,44 @@ def clean_cache(now):
 
 @app.route('/get_contract', methods=['GET'])
 def get_contract():
-
     if not check_auth():
         return jsonify({"error": "Unauthorized. Invalid password."}), 401
-    
+    if not api:
+        return jsonify({"error": "Shioaji 未初始化"}), 500
+
     code = request.args.get('code')
     if not code:
         return jsonify({"error": "Missing 'code' parameter"}), 400
-    
-    now = time.time()
 
+    now = time.time()
     if not check_rate_limit(now):
-        print(f"Too many requests. Please wait {REQUEST_LIMIT_INTERVAL} second before retry.")
-        return jsonify({"error": f"Too many requests. Please wait {REQUEST_LIMIT_INTERVAL} second before retry."}), 429
+        return jsonify({"error": f"Too many requests. Please wait {REQUEST_LIMIT_INTERVAL} sec"}), 429
 
     clean_cache(now)
 
     if code in cache and now - cache[code]["timestamp"] < CACHE_TTL:
-        print("cache hit")
         return jsonify(cache[code]["data"])
 
     try:
-        # 取得股票合約
         contracts = []
         stock_list = code.split(',')
-        if not stock_list:
-            print("[INFO] No valid stock")
-            return jsonify({"error": f"No valid stock with {code}"}), 404
         for s in stock_list:
-            if ss := api.Contracts.Stocks[s.upper()]:
-                contracts.append(ss)
+            contract = api.Contracts.Stocks.get(s.upper())
+            if contract:
+                contracts.append(contract)
         if not contracts:
             return jsonify({"error": f"No valid contract with {code}"}), 404
+
         snapshots = api.snapshots(contracts)
-        result = [{"symbol": s.code, "price": s.close,
-                   "change_price": s.change_price, "change_rate": s.change_rate} for s in snapshots]
+        result = [
+            {"symbol": s.code, "price": s.close,
+             "change_price": s.change_price, "change_rate": s.change_rate}
+            for s in snapshots
+        ]
         cache[code] = {"data": result, "timestamp": now}
-        print(result)
         return jsonify(result)
-    except:
-        return jsonify({"error": f"Stock code {code} not found"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/")
@@ -133,4 +142,7 @@ def run_web():
     app.run(host="0.0.0.0", port=port)
 
 
+# 啟動
+init_shioaji()
+threading.Thread(target=keep_alive, daemon=True).start()
 threading.Thread(target=run_web).start()
