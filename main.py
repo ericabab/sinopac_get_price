@@ -17,10 +17,6 @@ logging.basicConfig(
     format="%(asctime)s - USER_LOG - %(levelname)s - %(message)s"
 )
 
-logging.info("logging info test")
-logging.debug("logging debug test")
-logging.error("logging error test")
-
 # ====== 環境變數 ======
 if not os.getenv("RENDER") and not os.getenv("DOCKER") and not os.getenv("HEROKU"):
     load_dotenv()
@@ -41,7 +37,7 @@ limiter = Limiter(get_remote_address, app=app, default_limits=["5 per second"])
 api = sj.Shioaji(simulation=True)
 
 
-def login_shioaji(max_retries=100, retry_interval=3):
+def login_shioaji(max_retries=20, retry_interval=5):
     """嘗試登入 Shioaji，直到成功或達到最大重試次數"""
     global api
     for _ in range(max_retries):
@@ -156,10 +152,14 @@ def get_price(codes):
                 if contract:
                     contracts.append(contract)
             if not contracts:
-                print(f"result={results}")
+                logging.info(f"No new stocks needed fetch, result={results}")
                 return jsonify(results)
 
             snapshots = api.snapshots(contracts)
+            if not snapshots:
+                logging.info("snapshot is empty, return error")
+                return jsonify({"error": "snapshot is empty"}), 500
+
             for snap in snapshots:
                 data = {
                     "symbol": snap.code,
