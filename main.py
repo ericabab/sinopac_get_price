@@ -36,7 +36,6 @@ limiter = Limiter(get_remote_address, app=app, default_limits=["5 per second"])
 # ====== 初始化 Shioaji ======
 api = sj.Shioaji(simulation=True)
 
-
 def login_shioaji(max_retries=20, retry_interval=5):
     """嘗試登入 Shioaji，直到成功或達到最大重試次數"""
     global api
@@ -62,7 +61,8 @@ login_shioaji()
 def ensure_ready():
     """檢查 Shioaji 是否 ready，否則重新登入"""
     try:
-        _ = api.stock_account
+        if not api.list_accounts():
+            login_shioaji()
     except Exception:
         login_shioaji()
 
@@ -79,7 +79,7 @@ def scheduled_relogin():
 
 
 scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
-scheduler.add_job(scheduled_relogin, "cron", hour=5, minute=0)
+scheduler.add_job(scheduled_relogin, "cron", hour=5, minute=0, misfire_grace_time=60)
 scheduler.start()
 
 # ====== 簡易 Cache ======
