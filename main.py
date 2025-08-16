@@ -9,9 +9,10 @@ import pytz
 import logging
 import signal
 from typing import Optional
+import psutil
 
 # 保留 root logger 設定
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - ROOT - %(levelname)s - %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - ROOT  - %(levelname)s - %(message)s")
 
 # 建立自己 logger
 my_logger = logging.getLogger("my_main_logger")
@@ -22,12 +23,19 @@ console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.INFO)
 
 # 設定格式
-formatter = logging.Formatter("%(asctime)s - MAIN - %(levelname)s - %(message)s")
+formatter = logging.Formatter("%(asctime)s - MYLOG - %(levelname)s - %(message)s")
 console_handler.setFormatter(formatter)
 
 # 把 handler 加到 logger
 my_logger.addHandler(console_handler)
 my_logger.propagate = False
+
+# ====== 記憶體監測 ======
+process = psutil.Process(os.getpid())
+
+
+def log_mem_usage():
+    my_logger.info(f"Memory usage: {process.memory_info().rss / 1024**2:.2f} MB")
 
 # ====== 環境變數 ======
 if not os.getenv("RENDER") and not os.getenv("DOCKER") and not os.getenv("HEROKU"):
@@ -67,9 +75,10 @@ def login_shioaji(max_retries=20, retry_interval=5):
     global api
     for _ in range(max_retries):
         try:
-            my_logger.info(f"In login_shioaji")
+            my_logger.info(f"LOG IN...")
             api = sj.Shioaji(simulation=True)
             api.login(api_key=API_KEY, secret_key=API_SECRET, contracts_timeout=10000)
+            log_mem_usage()
             my_logger.info(f"API Usage: {api.usage()}")
             if api.list_accounts():
                 my_logger.info(f"✅ Shioaji login successful.")
@@ -145,6 +154,7 @@ def home():
 
 @app.route('/healthz', methods=['GET'])
 def healthz():
+    log_mem_usage()
     return "OK", 200
 
 
