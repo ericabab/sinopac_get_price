@@ -8,14 +8,25 @@ from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
 from dotenv import load_dotenv
+import logging
 
+
+# 設定基本日誌配置
+logging.basicConfig(
+    level=logging.INFO,  # 設定最低日誌等級
+    format="%(asctime)s - USER_LOG - %(levelname)s - %(message)s"
+)
+
+logging.info("logging info test")
+logging.debug("logging debug test")
+logging.error("logging error test")
 
 # ====== 環境變數 ======
 if not os.getenv("RENDER") and not os.getenv("DOCKER") and not os.getenv("HEROKU"):
     load_dotenv()
-    print("載入本地 .env 檔")
+    logging.info("載入本地 .env 檔")
 else:
-    print("偵測到雲端環境，略過 .env 載入")
+    logging.info("偵測到雲端環境，略過 .env 載入")
 
 
 API_KEY = os.environ.get("SINO_API_KEY")
@@ -30,23 +41,21 @@ limiter = Limiter(get_remote_address, app=app, default_limits=["5 per second"])
 api = sj.Shioaji(simulation=True)
 
 
-def login_shioaji(max_retries=10, retry_interval=3):
+def login_shioaji(max_retries=100, retry_interval=3):
     """嘗試登入 Shioaji，直到成功或達到最大重試次數"""
     global api
-    retries = 0
-    while retries < max_retries:
+    for _ in range(max_retries):
         try:
-            print(f"[{datetime.now()}] Logging in to Shioaji...")
+            logging.info(f"[{datetime.now()}] Logging in to Shioaji...")
             api = sj.Shioaji(simulation=True)
             api.login(api_key=API_KEY, secret_key=API_SECRET, contracts_timeout=10000)
             if api.list_accounts():
-                print(f"[{datetime.now()}] ✅ Shioaji login successful.")
+                logging.info(f"[{datetime.now()}] ✅ Shioaji login successful.")
                 return True
         except Exception as e:
-            print(f"[{datetime.now()}] ❌ Login failed: {e}")
-        retries += 1
+            logging.error(f"[{datetime.now()}] ❌ Login failed: {e}")
         time.sleep(retry_interval)
-    print(f"[{datetime.now()}] ⚠️ Max retries reached. Login aborted.")
+    logging.error(f"[{datetime.now()}] ⚠️ Max retries reached. Login aborted.")
     return False
 
 
@@ -65,11 +74,11 @@ def ensure_ready():
 # ====== 每日自動重登 ======
 def scheduled_relogin():
     global api
-    print(f"[{datetime.now()}] 🔄 Scheduled relogin triggered...")
+    logging.info(f"[{datetime.now()}] 🔄 Scheduled relogin triggered...")
     try:
         api.logout()
     except Exception as e:
-        print(f"[{datetime.now()}] Logout error: {e}")
+        logging.info(f"[{datetime.now()}] Logout error: {e}")
     login_shioaji()
 
 
@@ -97,6 +106,7 @@ def set_cache(key, value):
 # ====== 認證裝飾器 ======
 def require_auth(func):
     def wrapper(*args, **kwargs):
+        logging.info("In require_auth")
         auth_header = request.headers.get("Authorization", "")
         if auth_header != f"Bearer {AUTH_PASSWORD}":
             return jsonify({"error": "Unauthorized"}), 401
@@ -165,10 +175,11 @@ def get_price(codes):
                     "change_rate": snap.change_rate
                 })
 
-            print(f"result={results}")
+            logging.info(f"result={results}")
             return jsonify(results)
         except Exception as e:
             return jsonify({"error": str(e)}), 500
+    return jsonify(results)
 
 
 # ====== 啟動 Flask ======
