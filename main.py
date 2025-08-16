@@ -1,28 +1,41 @@
-import os
+import os, sys
 import time
 import shioaji as sj
 from flask import Flask, jsonify, request
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
-from dotenv import load_dotenv
 import logging
+import signal
+from typing import Optional
 
+# 保留 root logger 設定
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - ROOT - %(levelname)s - %(message)s")
 
-# 設定基本日誌配置
-logging.basicConfig(
-    level=logging.INFO,  # 設定最低日誌等級
-    format="%(asctime)s - USER_LOG - %(levelname)s - %(message)s"
-)
+# 建立自己 logger
+my_logger = logging.getLogger("my_main_logger")
+my_logger.setLevel(logging.INFO)  # 設定等級
+
+# 建立 handler，設定輸出位置（console）
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+
+# 設定格式
+formatter = logging.Formatter("%(asctime)s - MAIN - %(levelname)s - %(message)s")
+console_handler.setFormatter(formatter)
+
+# 把 handler 加到 logger
+my_logger.addHandler(console_handler)
+my_logger.propagate = False
 
 # ====== 環境變數 ======
 if not os.getenv("RENDER") and not os.getenv("DOCKER") and not os.getenv("HEROKU"):
+    from dotenv import load_dotenv
     load_dotenv()
-    logging.info("載入本地 .env 檔")
+    my_logger.info("載入本地 .env 檔")
 else:
-    logging.info("偵測到雲端環境，略過 .env 載入")
+    my_logger.info("偵測到雲端環境，略過 .env 載入")
 
 
 API_KEY = os.environ.get("SINO_API_KEY")
@@ -33,24 +46,38 @@ AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "your_password")
 app = Flask(__name__)
 limiter = Limiter(get_remote_address, app=app, default_limits=["5 per second"])
 
-# ====== 初始化 Shioaji ======
-api = sj.Shioaji(simulation=True)
+# ====== 初始化 Shioaji as None ======
+api: Optional[sj.shioaji.Shioaji] = None
+
+def handle_exit(signum, frame):
+    my_logger.info(f"收到訊號 {signum}, 登出 Shioaji...")
+    try:
+        api.logout()
+        my_logger.info(f"✅ 登出成功")
+    except Exception as e:
+        my_logger.info(f"⚠️ 登出失敗: {e}")
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, handle_exit)
+signal.signal(signal.SIGTERM, handle_exit)
+
 
 def login_shioaji(max_retries=20, retry_interval=5):
     """嘗試登入 Shioaji，直到成功或達到最大重試次數"""
     global api
     for _ in range(max_retries):
         try:
-            logging.info(f"[{datetime.now()}] Logging in to Shioaji...")
+            my_logger.info(f"In login_shioaji")
             api = sj.Shioaji(simulation=True)
             api.login(api_key=API_KEY, secret_key=API_SECRET, contracts_timeout=10000)
+            my_logger.info(f"API Usage: {api.usage()}")
             if api.list_accounts():
-                logging.info(f"[{datetime.now()}] ✅ Shioaji login successful.")
+                my_logger.info(f"✅ Shioaji login successful.")
                 return True
         except Exception as e:
-            logging.error(f"[{datetime.now()}] ❌ Login failed: {e}")
+            my_logger.error(f"[❌ Login failed: {e}")
         time.sleep(retry_interval)
-    logging.error(f"[{datetime.now()}] ⚠️ Max retries reached. Login aborted.")
+    my_logger.error(f"⚠️ Max retries reached. Login aborted.")
     return False
 
 
@@ -70,11 +97,11 @@ def ensure_ready():
 # ====== 每日自動重登 ======
 def scheduled_relogin():
     global api
-    logging.info(f"[{datetime.now()}] 🔄 Scheduled relogin triggered...")
+    my_logger.info(f"🔄 Scheduled relogin triggered...")
     try:
         api.logout()
     except Exception as e:
-        logging.info(f"[{datetime.now()}] Logout error: {e}")
+        my_logger.info(f"Logout error: {e}")
     login_shioaji()
 
 
@@ -83,7 +110,7 @@ scheduler.add_job(scheduled_relogin, "cron", hour=5, minute=0, misfire_grace_tim
 scheduler.start()
 
 # ====== 簡易 Cache ======
-CACHE_TTL = 1  # 秒
+CACHE_TTL = 3  # 秒
 cache = {}
 
 
@@ -102,7 +129,6 @@ def set_cache(key, value):
 # ====== 認證裝飾器 ======
 def require_auth(func):
     def wrapper(*args, **kwargs):
-        logging.info("In require_auth")
         auth_header = request.headers.get("Authorization", "")
         if auth_header != f"Bearer {AUTH_PASSWORD}":
             return jsonify({"error": "Unauthorized"}), 401
@@ -128,6 +154,12 @@ def healthz():
 def get_price(codes):
     ensure_ready()
 
+    remaining = api.usage().remaining_bytes
+    if remaining < 0:
+        my_logger.info(f"⚠️ 額度不足！已超過 {-remaining} bytes")
+        return jsonify({"error": f"⚠️ 額度不足！已超過 {-remaining} bytes"}), 500
+
+
     stock_codes = [code.strip() for code in codes.split(",") if code.strip()]
     results = []
 
@@ -152,12 +184,12 @@ def get_price(codes):
                 if contract:
                     contracts.append(contract)
             if not contracts:
-                logging.info(f"No new stocks needed fetch, result={results}")
+                my_logger.info(f"No new stocks needed fetch, result={results}")
                 return jsonify(results)
 
             snapshots = api.snapshots(contracts)
             if not snapshots:
-                logging.info("snapshot is empty, return error")
+                my_logger.info("snapshot is empty, return error")
                 return jsonify({"error": "snapshot is empty"}), 500
 
             for snap in snapshots:
@@ -175,7 +207,7 @@ def get_price(codes):
                     "change_rate": snap.change_rate
                 })
 
-            logging.info(f"result={results}")
+            my_logger.info(f"result={results}")
             return jsonify(results)
         except Exception as e:
             return jsonify({"error": str(e)}), 500
