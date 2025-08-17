@@ -1,73 +1,63 @@
-import os, sys
-import time
+import os, sys, time, logging, signal
 import shioaji as sj
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
-import logging
-import signal
-from typing import Optional
 import psutil
 
-# 保留 root logger 設定
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - ROOT  - %(levelname)s - %(message)s")
+# ====== 初始化 ======
+app = Flask(__name__)
+limiter = Limiter(get_remote_address, app=app, default_limits=["5 per second"])
+api = sj.Shioaji(simulation=True)
 
-# 建立自己 logger
-my_logger = logging.getLogger("my_main_logger")
-my_logger.setLevel(logging.INFO)  # 設定等級
 
-# 建立 handler，設定輸出位置（console）
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
+def create_logger():
+    # 保留 root logger 設定
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - ROOT  - %(levelname)s - %(message)s")
 
-# 設定格式
-formatter = logging.Formatter("%(asctime)s - MYLOG - %(levelname)s - %(message)s")
-console_handler.setFormatter(formatter)
+    # 建立自己 logger
+    new_logger = logging.getLogger("my_main_logger")
+    new_logger.setLevel(logging.INFO)  # 設定等級
 
-# 把 handler 加到 logger
-my_logger.addHandler(console_handler)
-my_logger.propagate = False
+    # 建立 handler，設定輸出位置（console）
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
 
-# ====== 記憶體監測 ======
-process = psutil.Process(os.getpid())
+    # 設定格式
+    formatter = logging.Formatter("%(asctime)s - MYLOG - %(levelname)s - %(message)s")
+    console_handler.setFormatter(formatter)
+
+    # 把 handler 加到 logger
+    new_logger.addHandler(console_handler)
+    new_logger.propagate = False
+
+    return new_logger
 
 
 def log_mem_usage():
-    my_logger.info(f"Memory usage: {process.memory_info().rss / 1024**2:.2f} MB")
+    my_logger.info(f"Memory usage: {process.memory_info().rss / 1024 ** 2:.2f} MB")
 
-# ====== 環境變數 ======
-if not os.getenv("RENDER") and not os.getenv("DOCKER") and not os.getenv("HEROKU"):
-    from dotenv import load_dotenv
-    load_dotenv()
-    my_logger.info("載入本地 .env 檔")
-else:
-    my_logger.info("偵測到雲端環境，略過 .env 載入")
-
-
-API_KEY = os.environ.get("SINO_API_KEY")
-API_SECRET = os.environ.get("SINO_SECRET_KEY")
-AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "your_password")
-
-# ====== 初始化 Flask ======
-app = Flask(__name__)
-limiter = Limiter(get_remote_address, app=app, default_limits=["5 per second"])
-
-# ====== 初始化 Shioaji as None ======
-api: Optional[sj.shioaji.Shioaji] = None
 
 def handle_exit(signum, frame):
     my_logger.info(f"收到訊號 {signum}, 登出 Shioaji...")
     try:
         api.logout()
-        my_logger.info(f"✅ 登出成功")
+        my_logger.info(f"✅ 登出成功 {frame}")
     except Exception as e:
         my_logger.info(f"⚠️ 登出失敗: {e}")
     sys.exit(0)
 
-signal.signal(signal.SIGINT, handle_exit)
-signal.signal(signal.SIGTERM, handle_exit)
+
+def get_remaining_quote():
+    return api.usage().remaining_bytes
+
+
+def fetch_contracts_if_ok():
+    if not hasattr(api, "Contracts") and api.usage().remaining_bytes > 0 :
+        my_logger.info(f"Fetch contracts")
+        api.fetch_contracts(contracts_timeout=10000)
 
 
 def login_shioaji(max_retries=20, retry_interval=5):
@@ -76,22 +66,21 @@ def login_shioaji(max_retries=20, retry_interval=5):
     for _ in range(max_retries):
         try:
             my_logger.info(f"LOG IN...")
-            api = sj.Shioaji(simulation=True)
-            api.login(api_key=API_KEY, secret_key=API_SECRET, contracts_timeout=10000)
+            # api = sj.Shioaji(simulation=True)
+            # api.login(api_key=API_KEY, secret_key=API_SECRET, contracts_timeout=10000)
+            api.login(api_key=API_KEY, secret_key=API_SECRET, fetch_contract=False)
             log_mem_usage()
             my_logger.info(f"API Usage: {api.usage()}")
+            fetch_contracts_if_ok()
             if api.list_accounts():
                 my_logger.info(f"✅ Shioaji login successful.")
                 return True
         except Exception as e:
+            api = sj.Shioaji(simulation=True)
             my_logger.error(f"[❌ Login failed: {e}")
         time.sleep(retry_interval)
     my_logger.error(f"⚠️ Max retries reached. Login aborted.")
     return False
-
-
-# 啟動時先登入一次
-login_shioaji()
 
 
 def ensure_ready():
@@ -103,6 +92,18 @@ def ensure_ready():
         login_shioaji()
 
 
+def keep_alive():
+    try:
+        usage = api.usage()
+        my_logger.info(f"Keep-alive success. {usage}")
+    except Exception as e:
+        my_logger.warning(f"Keep-alive failed: {e}")
+        try:
+            api.logout()
+        except:
+            pass
+
+
 # ====== 每日自動重登 ======
 def scheduled_relogin():
     global api
@@ -112,15 +113,6 @@ def scheduled_relogin():
     except Exception as e:
         my_logger.info(f"Logout error: {e}")
     login_shioaji()
-
-
-scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
-scheduler.add_job(scheduled_relogin, "cron", hour=5, minute=0, misfire_grace_time=60)
-scheduler.start()
-
-# ====== 簡易 Cache ======
-CACHE_TTL = 3  # 秒
-cache = {}
 
 
 def get_from_cache(key):
@@ -135,13 +127,13 @@ def set_cache(key, value):
     cache[key] = (value, time.time())
 
 
-# ====== 認證裝飾器 ======
 def require_auth(func):
     def wrapper(*args, **kwargs):
         auth_header = request.headers.get("Authorization", "")
         if auth_header != f"Bearer {AUTH_PASSWORD}":
             return jsonify({"error": "Unauthorized"}), 401
         return func(*args, **kwargs)
+
     wrapper.__name__ = func.__name__
     return wrapper
 
@@ -150,6 +142,11 @@ def require_auth(func):
 @app.route("/")
 def home():
     return "✅ Bot is running!"
+
+
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory("static", "favicon.ico", mimetype="image/vnd.microsoft.icon")
 
 
 @app.route('/healthz', methods=['GET'])
@@ -169,6 +166,7 @@ def get_price(codes):
         my_logger.info(f"⚠️ 額度不足！已超過 {-remaining} bytes")
         return jsonify({"error": f"⚠️ 額度不足！已超過 {-remaining} bytes"}), 500
 
+    fetch_contracts_if_ok()
 
     stock_codes = [code.strip() for code in codes.split(",") if code.strip()]
     results = []
@@ -224,7 +222,54 @@ def get_price(codes):
     return jsonify(results)
 
 
-# ====== 啟動 Flask ======
+# ################################################
+#        MAIN CODE
+# ################################################
 if __name__ == "__main__":
+    # ====== 建立自己 logger ======
+    my_logger = create_logger()
+
+    # ====== 記憶體監測 ======
+    process = psutil.Process(os.getpid())
+
+    # ====== 處理中斷 =======
+    signal.signal(signal.SIGINT, handle_exit)
+    signal.signal(signal.SIGTERM, handle_exit)
+
+    # ====== 環境變數 ======
+    if not os.getenv("RENDER") and not os.getenv("DOCKER") and not os.getenv("HEROKU"):
+        from dotenv import load_dotenv
+        load_dotenv()
+        my_logger.info("載入本地 .env 檔")
+    else:
+        my_logger.info("偵測到雲端環境，略過 .env 載入")
+
+    API_KEY = os.environ.get("SINO_API_KEY")
+    API_SECRET = os.environ.get("SINO_SECRET_KEY")
+    AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD", "your_password")
+
+    # ====== local routes ======
+    if os.environ.get("ENABLE_LOCAL_ROUTES") == "true":
+        try:
+            import local_routes
+            local_routes.register(app, api)
+            my_logger.info("import local routes OK")
+        except ImportError:
+            local_routes = None
+            my_logger.error("⚠️ local_routes not found, skipping...")
+
+    # ===== 啟動時先登入一次 =====
+    login_shioaji()
+
+    # ====== 排程重登 ======
+    scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
+    scheduler.add_job(keep_alive, "interval", minutes=5)
+    scheduler.start()
+
+    # ====== 簡易 Cache ======
+    CACHE_TTL = 3  # 秒
+    cache = {}
+
+    # ====== 啟動 Flask ======
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
