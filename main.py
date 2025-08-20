@@ -9,7 +9,7 @@ import psutil
 
 # ====== 初始化 ======
 app = Flask(__name__)
-limiter = Limiter(get_remote_address, app=app, default_limits=["5 per second"])
+limiter = Limiter(get_remote_address, app=app)
 api = sj.Shioaji(simulation=True)
 
 
@@ -266,7 +266,7 @@ if __name__ == "__main__":
 
     # ====== 排程重登 ======
     scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
-    scheduler.add_job(keep_alive, "interval", hours=1)
+    scheduler.add_job(keep_alive, "interval", minutes=5)
     scheduler.start()
 
     # ====== 簡易 Cache ======
