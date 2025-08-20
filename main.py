@@ -86,9 +86,10 @@ def login_shioaji(max_retries=20, retry_interval=5):
 def ensure_ready():
     """檢查 Shioaji 是否 ready，否則重新登入"""
     try:
-        if not api.list_accounts():
+        if not api.usage() or not api.list_accounts():
             login_shioaji()
-    except Exception:
+    except Exception as e:
+        my_logger.error(f"api.usage failed: {e}")
         login_shioaji()
 
 
