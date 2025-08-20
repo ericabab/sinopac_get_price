@@ -89,7 +89,7 @@ def ensure_ready():
         if not api.usage() or not api.list_accounts():
             login_shioaji()
     except Exception as e:
-        my_logger.error(f"api.usage failed: {e}")
+        my_logger.warning(f"api.usage failed: {e}")
         login_shioaji()
 
 
@@ -103,6 +103,8 @@ def keep_alive():
             api.logout()
         except:
             pass
+        finally:
+            login_shioaji()
 
 
 # ====== 每日自動重登 ======
@@ -264,7 +266,7 @@ if __name__ == "__main__":
 
     # ====== 排程重登 ======
     scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
-    scheduler.add_job(keep_alive, "interval", minutes=5)
+    scheduler.add_job(keep_alive, "interval", hours=1)
     scheduler.start()
 
     # ====== 簡易 Cache ======
