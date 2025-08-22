@@ -3,8 +3,8 @@ import shioaji as sj
 from flask import Flask, jsonify, request, send_from_directory
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from apscheduler.schedulers.background import BackgroundScheduler
-import pytz
+# from apscheduler.schedulers.background import BackgroundScheduler
+# import pytz
 import psutil
 
 # ====== 初始化 ======
@@ -87,6 +87,7 @@ def ensure_ready():
     """檢查 Shioaji 是否 ready，否則重新登入"""
     try:
         if not api.usage() or not api.list_accounts():
+            api.logout()
             login_shioaji()
     except Exception as e:
         my_logger.warning(f"api.usage failed: {e}")
@@ -154,8 +155,12 @@ def favicon():
 
 @app.route('/healthz', methods=['GET'])
 def healthz():
-    log_mem_usage()
     return "OK", 200
+
+
+@app.route('/memory', methods=['GET'])
+def check_mem():
+    log_mem_usage()
 
 
 @app.route("/price/<codes>")
@@ -265,9 +270,9 @@ if __name__ == "__main__":
     login_shioaji()
 
     # ====== 排程重登 ======
-    scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
-    scheduler.add_job(keep_alive, "interval", minutes=5)
-    scheduler.start()
+    # scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
+    # scheduler.add_job(keep_alive, "interval", minutes=5)
+    # scheduler.start()
 
     # ====== 簡易 Cache ======
     CACHE_TTL = 3  # 秒
