@@ -37,7 +37,9 @@ def create_logger():
 
 
 def log_mem_usage():
-    my_logger.info(f"Memory usage: {process.memory_info().rss / 1024 ** 2:.2f} MB")
+    result = f"Memory usage: {process.memory_info().rss / 1024 ** 2:.2f} MB"
+    my_logger.info(result)
+    return result
 
 
 def handle_exit(signum, frame):
@@ -65,7 +67,7 @@ def login_shioaji(max_retries=20, retry_interval=5):
     global api
     for _ in range(max_retries):
         try:
-            my_logger.info(f"LOG IN...")
+            my_logger.info(f"LOGIN...")
             # api = sj.Shioaji(simulation=True)
             # api.login(api_key=API_KEY, secret_key=API_SECRET, contracts_timeout=10000)
             api.login(api_key=API_KEY, secret_key=API_SECRET, fetch_contract=False)
@@ -155,12 +157,12 @@ def favicon():
 
 @app.route('/healthz', methods=['GET'])
 def healthz():
-    return "OK", 200
+    return "OK"
 
 
 @app.route('/memory', methods=['GET'])
 def check_mem():
-    log_mem_usage()
+    return log_mem_usage()
 
 
 @app.route("/price/<codes>")
