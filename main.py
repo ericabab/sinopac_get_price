@@ -88,37 +88,15 @@ def login_shioaji(max_retries=20, retry_interval=5):
 def ensure_ready():
     """檢查 Shioaji 是否 ready，否則重新登入"""
     try:
-        if not api.usage() or not api.list_accounts():
-            api.logout()
-            login_shioaji()
+        api.usage()
     except Exception as e:
-        my_logger.warning(f"api.usage failed: {e}")
-        login_shioaji()
-
-
-def keep_alive():
-    try:
-        usage = api.usage()
-        my_logger.info(f"Keep-alive success. {usage}")
-    except Exception as e:
-        my_logger.warning(f"Keep-alive failed: {e}")
+        my_logger.warning(f"api.usage() failed in ensure_ready: {e}")
         try:
             api.logout()
         except:
             pass
         finally:
             login_shioaji()
-
-
-# ====== 每日自動重登 ======
-def scheduled_relogin():
-    global api
-    my_logger.info(f"🔄 Scheduled relogin triggered...")
-    try:
-        api.logout()
-    except Exception as e:
-        my_logger.info(f"Logout error: {e}")
-    login_shioaji()
 
 
 def get_from_cache(key):
@@ -157,6 +135,7 @@ def favicon():
 
 @app.route('/healthz', methods=['GET'])
 def healthz():
+    ensure_ready()
     return "OK"
 
 
