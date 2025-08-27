@@ -65,9 +65,9 @@ def fetch_contracts_if_ok():
 def login_shioaji(max_retries=20, retry_interval=5):
     """嘗試登入 Shioaji，直到成功或達到最大重試次數"""
     global api
-    for _ in range(max_retries):
+    for i in range(max_retries):
         try:
-            my_logger.info(f"LOGIN...")
+            my_logger.info(f"LOGIN... (try {i+1}/{max_retries})")
             # api = sj.Shioaji(simulation=True)
             # api.login(api_key=API_KEY, secret_key=API_SECRET, contracts_timeout=10000)
             api.login(api_key=API_KEY, secret_key=API_SECRET, fetch_contract=False)
@@ -78,7 +78,7 @@ def login_shioaji(max_retries=20, retry_interval=5):
                 my_logger.info(f"✅ Shioaji login successful.")
                 return True
         except Exception as e:
-            api = sj.Shioaji(simulation=True)
+            # api = sj.Shioaji(simulation=True)
             my_logger.error(f"[❌ Login failed: {e}")
         time.sleep(retry_interval)
     my_logger.error(f"⚠️ Max retries reached. Login aborted.")
