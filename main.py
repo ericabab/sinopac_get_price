@@ -78,8 +78,10 @@ def login_shioaji(max_retries=20, retry_interval=5):
                 my_logger.info(f"✅ Shioaji login successful.")
                 return True
         except Exception as e:
-            # api = sj.Shioaji(simulation=True)
-            my_logger.error(f"[❌ Login failed: {e}")
+            import traceback
+            my_logger.error(f"Login exception...")
+            my_logger.error(f"Login exception type={type(e)}, repr={repr(e)}")
+            traceback.print_exc()
         time.sleep(retry_interval)
     my_logger.error(f"⚠️ Max retries reached. Login aborted.")
     return False
