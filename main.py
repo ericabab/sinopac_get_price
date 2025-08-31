@@ -64,7 +64,6 @@ def fetch_contracts_if_ok():
 
 def login_shioaji(max_retries=20, retry_interval=5):
     """嘗試登入 Shioaji，直到成功或達到最大重試次數"""
-    global api
     for i in range(max_retries):
         try:
             my_logger.info(f"LOGIN... (try {i+1}/{max_retries})")
@@ -87,21 +86,22 @@ def login_shioaji(max_retries=20, retry_interval=5):
     return False
 
 
+def my_session_down():
+    my_logger.warning(f"[Session Down]")
+    # 在這裡做重連或重新登入
+    try:
+        time.sleep(1)
+        login_shioaji()
+    except Exception as e:
+        my_logger.error(f"[Session Down exception] {e}")
+
+
 def ensure_ready():
     """檢查 Shioaji 是否 ready，否則重新登入"""
     try:
         api.usage()
     except Exception as e:
         my_logger.warning(f"api.usage() failed in ensure_ready: {e}")
-        time.sleep(3)
-        try:
-            api.logout()
-            my_logger.info(f"logout ok")
-        except:
-            my_logger.info(f"logout failed")
-        finally:
-            time.sleep(3)
-            login_shioaji()
 
 
 def get_from_cache(key):
@@ -253,6 +253,7 @@ if __name__ == "__main__":
             my_logger.error("⚠️ local_routes not found, skipping...")
 
     # ===== 啟動時先登入一次 =====
+    api.on_session_down(my_session_down)
     login_shioaji()
 
     # ====== 排程重登 ======
