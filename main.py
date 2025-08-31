@@ -86,8 +86,8 @@ def login_shioaji(max_retries=20, retry_interval=5):
     return False
 
 
-def my_session_down():
-    my_logger.warning(f"[Session Down]")
+def my_session_down(*args, **kwargs):
+    my_logger.warning(f"[Session Down] args={args}, kwargs={kwargs}")
     # 在這裡做重連或重新登入
     try:
         time.sleep(1)
