@@ -93,11 +93,14 @@ def ensure_ready():
         api.usage()
     except Exception as e:
         my_logger.warning(f"api.usage() failed in ensure_ready: {e}")
+        time.sleep(3)
         try:
             api.logout()
+            my_logger.info(f"logout ok")
         except:
-            pass
+            my_logger.info(f"logout failed")
         finally:
+            time.sleep(3)
             login_shioaji()
 
 
