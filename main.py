@@ -86,6 +86,7 @@ def login_shioaji(max_retries=20, retry_interval=5):
     return False
 
 
+@api.on_session_down
 def my_session_down(*args, **kwargs):
     my_logger.warning(f"[Session Down] args={args}, kwargs={kwargs}")
     # 在這裡做重連或重新登入
@@ -253,7 +254,7 @@ if __name__ == "__main__":
             my_logger.error("⚠️ local_routes not found, skipping...")
 
     # ===== 啟動時先登入一次 =====
-    api.on_session_down(my_session_down)
+    #api.on_session_down(my_session_down)
     login_shioaji()
 
     # ====== 排程重登 ======
