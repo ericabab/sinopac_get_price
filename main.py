@@ -8,8 +8,6 @@ from flask_limiter.util import get_remote_address
 import psutil
 import threading
 
-
-
 # ====== 初始化 ======
 app = Flask(__name__)
 limiter = Limiter(get_remote_address, app=app)
@@ -66,7 +64,7 @@ def fetch_contracts_if_ok():
         api.fetch_contracts(contracts_timeout=10000)
 
 
-def login_shioaji(reason: str = None, max_retries=20, retry_interval=5):
+def login_shioaji(reason: str = None, max_retries=10, retry_interval=5):
     my_logger.info(f"🔑 login_shioaji() called by {reason}")
     if not login_lock.acquire(blocking=False):
         my_logger.info("⚠️ login_shioaji 已經在執行，跳過這次呼叫")
@@ -102,11 +100,8 @@ def login_shioaji(reason: str = None, max_retries=20, retry_interval=5):
 def my_session_down(*args, **kwargs):
     my_logger.warning(f"[Session Down] args={args}, kwargs={kwargs}")
     # 在這裡做重連或重新登入
-    try:
-        time.sleep(1)
-        login_shioaji(reason="on_session_down")
-    except Exception as e:
-        my_logger.error(f"[Session Down exception] {e}")
+    time.sleep(1)
+    login_shioaji(reason="on_session_down")
 
 
 def ensure_ready():
@@ -114,12 +109,9 @@ def ensure_ready():
     try:
         api.usage()
     except Exception as e:
-        try:
-            my_logger.warning(f"api.usage() failed in ensure_ready: {e}")
-            time.sleep(1)
-            login_shioaji(reason="ensure_ready")
-        except Exception as e:
-            my_logger.error(f"login_shioaji failed in ensure_ready: {e}")
+        my_logger.warning(f"api.usage() failed in ensure_ready: {e}")
+        time.sleep(1)
+        login_shioaji(reason="ensure_ready")
 
 
 def get_from_cache(key):
