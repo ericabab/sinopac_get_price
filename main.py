@@ -6,11 +6,15 @@ from flask_limiter.util import get_remote_address
 # from apscheduler.schedulers.background import BackgroundScheduler
 # import pytz
 import psutil
+import threading
+
+
 
 # ====== 初始化 ======
 app = Flask(__name__)
 limiter = Limiter(get_remote_address, app=app)
 api = sj.Shioaji(simulation=True)
+login_lock = threading.Lock()
 
 
 def create_logger():
@@ -62,28 +66,36 @@ def fetch_contracts_if_ok():
         api.fetch_contracts(contracts_timeout=10000)
 
 
-def login_shioaji(max_retries=20, retry_interval=5):
-    """嘗試登入 Shioaji，直到成功或達到最大重試次數"""
-    for i in range(max_retries):
-        try:
-            my_logger.info(f"LOGIN... (try {i+1}/{max_retries})")
-            # api = sj.Shioaji(simulation=True)
-            # api.login(api_key=API_KEY, secret_key=API_SECRET, contracts_timeout=10000)
-            api.login(api_key=API_KEY, secret_key=API_SECRET, fetch_contract=False)
-            log_mem_usage()
-            my_logger.info(f"API Usage: {api.usage()}")
-            fetch_contracts_if_ok()
-            if api.list_accounts():
-                my_logger.info(f"✅ Shioaji login successful.")
-                return True
-        except Exception as e:
-            import traceback
-            my_logger.error(f"Login exception...")
-            my_logger.error(f"Login exception type={type(e)}, repr={repr(e)}")
-            traceback.print_exc()
-        time.sleep(retry_interval)
-    my_logger.error(f"⚠️ Max retries reached. Login aborted.")
-    return False
+def login_shioaji(reason: str = None, max_retries=20, retry_interval=5):
+    my_logger.info(f"🔑 login_shioaji() called by {reason}")
+    if not login_lock.acquire(blocking=False):
+        my_logger.info("⚠️ login_shioaji 已經在執行，跳過這次呼叫")
+        return False
+
+    try:
+        """嘗試登入 Shioaji，直到成功或達到最大重試次數"""
+        for i in range(max_retries):
+            try:
+                my_logger.info(f"LOGIN... (try {i+1}/{max_retries})")
+                # api = sj.Shioaji(simulation=True)
+                # api.login(api_key=API_KEY, secret_key=API_SECRET, contracts_timeout=10000)
+                api.login(api_key=API_KEY, secret_key=API_SECRET, fetch_contract=False)
+                log_mem_usage()
+                my_logger.info(f"API Usage: {api.usage()}")
+                fetch_contracts_if_ok()
+                if api.list_accounts():
+                    my_logger.info(f"✅ Shioaji login successful.")
+                    return True
+            except Exception as e:
+                import traceback
+                my_logger.error(f"Login exception...")
+                my_logger.error(f"Login exception type={type(e)}, repr={repr(e)}")
+                traceback.print_exc()
+            time.sleep(retry_interval)
+        my_logger.error(f"⚠️ Max retries reached. Login aborted.")
+        return False
+    finally:
+        login_lock.release()
 
 
 @api.on_session_down
@@ -92,7 +104,7 @@ def my_session_down(*args, **kwargs):
     # 在這裡做重連或重新登入
     try:
         time.sleep(1)
-        login_shioaji()
+        login_shioaji(reason="on_session_down")
     except Exception as e:
         my_logger.error(f"[Session Down exception] {e}")
 
@@ -102,7 +114,12 @@ def ensure_ready():
     try:
         api.usage()
     except Exception as e:
-        my_logger.warning(f"api.usage() failed in ensure_ready: {e}")
+        try:
+            my_logger.warning(f"api.usage() failed in ensure_ready: {e}")
+            time.sleep(1)
+            login_shioaji(reason="ensure_ready")
+        except Exception as e:
+            my_logger.error(f"login_shioaji failed in ensure_ready: {e}")
 
 
 def get_from_cache(key):
@@ -255,7 +272,7 @@ if __name__ == "__main__":
 
     # ===== 啟動時先登入一次 =====
     #api.on_session_down(my_session_down)
-    login_shioaji()
+    login_shioaji(reason="main")
 
     # ====== 排程重登 ======
     # scheduler = BackgroundScheduler(timezone=pytz.timezone("Asia/Taipei"))
