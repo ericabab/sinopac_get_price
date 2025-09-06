@@ -230,6 +230,7 @@ def get_price(codes):
 #        MAIN CODE
 # ################################################
 if __name__ == "__main__":
+
     # ====== 建立自己 logger ======
     my_logger = create_logger()
 
@@ -277,4 +278,7 @@ if __name__ == "__main__":
 
     # ====== 啟動 Flask ======
     port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    try:
+        app.run(host="0.0.0.0", port=port)
+    except Exception as e:
+        my_logger.info(f"Exception In main: {e}")
